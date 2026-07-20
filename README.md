@@ -17,8 +17,8 @@ Trust-first, mobile-first, built to solve fraud, fragmentation, opaque pricing, 
 | Sell / New Listing Creation (draft → publish wizard) | ✅ |
 | Buyer Search & Car Detail (filters, financing calculator) | ✅ |
 | Messaging System (Realtime chat, listing-anchored threads) | ✅ |
+| Dealer Verification / KYC (the gate behind every "Verified" badge) | ✅ |
 | Escrow / secure payments | 🔜 |
-| Dealer Verification (KYC) | 🔜 |
 | Admin tooling | 🔜 |
 
 Detailed design decisions and the incremental build history for each vertical are in [`docs/BUILD_LOG.md`](docs/BUILD_LOG.md).
@@ -74,6 +74,7 @@ psql $DATABASE_URL -f backend/db/listing_schema.sql
 psql $DATABASE_URL -f backend/db/buyer_schema.sql
 psql $DATABASE_URL -f backend/db/messaging_schema.sql
 psql $DATABASE_URL -f backend/db/supabase_migration.sql  # auth sync trigger, RLS, realtime
+psql $DATABASE_URL -f backend/db/verification_schema.sql # dealer KYC
 ```
 
 Or run them all via the Supabase Dashboard's SQL Editor, in the same order. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full Supabase project setup (including creating the `vehicle-photos` storage bucket, which isn't SQL).

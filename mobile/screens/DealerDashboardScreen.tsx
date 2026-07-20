@@ -30,6 +30,7 @@ interface Props {
   onOpenListing?: (vehicleId: string) => void;
   onOpenInquiry?: (inquiry: DealerInquiryItem) => void;
   onAddListing?: () => void;
+  onOpenVerification?: () => void;
 }
 
 /**
@@ -47,7 +48,7 @@ const GRID_GUTTER = spacing.sm;
 const CONTENT_PADDING = spacing.lg;
 
 function DealerDashboardScreenInner(
-  { dealerId, onOpenListing, onOpenInquiry, onAddListing }: Props,
+  { dealerId, onOpenListing, onOpenInquiry, onAddListing, onOpenVerification }: Props,
   ref: React.Ref<DealerDashboardHandle>
 ) {
   const { width } = useWindowDimensions();
@@ -139,7 +140,9 @@ function DealerDashboardScreenInner(
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.dealerName}>{summary.businessName}</Text>
-          <VerificationBadge status={summary.verificationStatus} />
+          <Pressable onPress={onOpenVerification} disabled={summary.verificationStatus === 'verified'}>
+            <VerificationBadge status={summary.verificationStatus} />
+          </Pressable>
         </View>
         <Pressable style={styles.addButton} onPress={onAddListing}>
           <Text style={styles.addButtonText}>+ Add Listing</Text>

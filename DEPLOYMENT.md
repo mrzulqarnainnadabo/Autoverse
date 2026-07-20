@@ -20,7 +20,9 @@ demoable, secure product at $0/month first.
    backend/db/messaging_schema.sql
    backend/db/supabase_migration.sql
    ```
-4. **Storage bucket**: Dashboard → Storage → New bucket → name it `vehicle-photos` → set **Public**. This is where `photoStorageService.ts` uploads listing photos.
+4. **Storage buckets**: Dashboard → Storage →
+   - New bucket `vehicle-photos` → set **Public** (listing photos).
+   - New bucket `dealer-verification-docs` → leave **Private** (CAC certificates and government IDs — the backend generates short-lived signed URLs for admin review; nothing here is ever public).
 5. **API keys**: Project Settings → API. You'll need:
    - `Project URL` → `SUPABASE_URL` (backend) and `EXPO_PUBLIC_SUPABASE_URL` (mobile)
    - `anon public` key → `EXPO_PUBLIC_SUPABASE_ANON_KEY` (mobile only — safe to ship)

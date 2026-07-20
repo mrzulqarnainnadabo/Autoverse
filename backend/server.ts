@@ -11,6 +11,7 @@ import dealerRoutes from './routes/dealer.routes';
 import listingRoutes from './routes/listing.routes';
 import searchRoutes from './routes/search.routes';
 import messagingRoutes from './routes/messaging.routes';
+import verificationRoutes from './routes/verification.routes';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -24,6 +25,7 @@ app.use(dealerRoutes);
 app.use(listingRoutes);
 app.use(searchRoutes);
 app.use(messagingRoutes);
+app.use(verificationRoutes);
 
 // Centralized error fallback for anything that slips past a route's own
 // try/catch — keeps the process from crashing on an unexpected throw.
