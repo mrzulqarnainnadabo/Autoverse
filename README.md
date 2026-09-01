@@ -18,6 +18,7 @@ Trust-first, mobile-first, built to solve fraud, fragmentation, opaque pricing, 
 | Buyer Search & Car Detail (filters, financing calculator) | ✅ |
 | Messaging System (Realtime chat, listing-anchored threads) | ✅ |
 | Dealer Verification / KYC (the gate behind every "Verified" badge) | ✅ |
+| **AV Drive** (verified owner side-income — structured private hire) | 📋 Spec locked — see [`docs/AV_DRIVE.md`](docs/AV_DRIVE.md) |
 | Escrow / secure payments | 🔜 |
 | Admin tooling | 🔜 |
 
@@ -58,7 +59,8 @@ autoverse-app/
 │   ├── utils/                          Time formatting, etc.
 │   └── .env.example
 ├── docs/
-│   └── BUILD_LOG.md                   Per-vertical design decisions & what's not yet built
+│   ├── BUILD_LOG.md                   Per-vertical design decisions & what's not yet built
+│   └── AV_DRIVE.md                    AV Drive product decision + MVP spec
 ├── DEPLOYMENT.md                       Supabase + Railway + Expo deployment guide
 └── .gitignore
 ```
@@ -75,6 +77,7 @@ psql $DATABASE_URL -f backend/db/buyer_schema.sql
 psql $DATABASE_URL -f backend/db/messaging_schema.sql
 psql $DATABASE_URL -f backend/db/supabase_migration.sql  # auth sync trigger, RLS, realtime
 psql $DATABASE_URL -f backend/db/verification_schema.sql # dealer KYC
+# Later: backend/db/av_drive_schema.sql                  # AV Drive (after MVP tables designed)
 ```
 
 Or run them all via the Supabase Dashboard's SQL Editor, in the same order. See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the full Supabase project setup (including creating the `vehicle-photos` storage bucket, which isn't SQL).
