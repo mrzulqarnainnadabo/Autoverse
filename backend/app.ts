@@ -5,6 +5,7 @@ import listingRoutes from './routes/listing.routes';
 import searchRoutes from './routes/search.routes';
 import messagingRoutes from './routes/messaging.routes';
 import verificationRoutes from './routes/verification.routes';
+import avDriveRoutes from './routes/avDrive.routes';
 
 export const app = express();
 
@@ -36,6 +37,7 @@ app.use(listingRoutes);
 app.use(searchRoutes);
 app.use(messagingRoutes);
 app.use(verificationRoutes);
+app.use(avDriveRoutes);
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[Unhandled error]', err);
