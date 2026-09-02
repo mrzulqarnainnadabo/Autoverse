@@ -1,12 +1,13 @@
 /**
  * AUTOVERSE — Vercel Serverless Entrypoint
- * Vercel's Node.js runtime wraps a default-exported Express app as a
- * request handler automatically — no additional adapter code needed.
- * All routing (including /health and every /api/v1/* route) is
- * handled internally by Express via app.ts; vercel.json rewrites every
- * incoming path to this one function.
+ *
+ * All routes live on the Express app (app.ts). Vercel routes every
+ * path to this file via vercel.json.
  */
 
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { app } from '../app';
 
-export default app;
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  return app(req as any, res as any);
+}
