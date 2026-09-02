@@ -250,7 +250,7 @@ class AvDriveService {
     }
 
     let conversationId: string | null = job.conversation_id ?? null;
-    const vehicleId = job.vehicle_id || profile.vehicle_id;
+    const vehicleId = job.vehicle_id || profile.vehicleId;
 
     // Open job-anchored chat when we have a vehicle (reuses marketplace messaging).
     if (vehicleId && !conversationId) {
@@ -391,144 +391,77 @@ class AvDriveService {
     // Roll up owner rating when client rates owner
     if (fromUserId === job.client_id && job.owner_id) {
       await pool.query(
-        `UPDATE av_drive_profiles p SET
-           rating_avg = sub.avg_stars,
-           rating_count = sub.cnt,
-           updated_at = now()
-         FROM (
-           SELECT AVG(stars)::numeric(3,2) AS avg_stars, COUNT(*)::int AS cnt
-           FROM av_drive_ratings r
-           JOIN av_drive_jobs j ON j.id = r.job_id
-           WHERE j.owner_id = $1
-         ) sub
-         WHERE p.user_id = $1`,
+        `UPDATE av_drive_profiles
+         SET rating_count = (SELECT COUNT(*) FROM av_drive_ratings WHERE to_user_id = $1),
+             rating_avg = COALESCE((SELECT AVG(stars) FROM av_drive_ratings WHERE to_user_id = $1), 0),
+             updated_at = now()
+         WHERE user_id = $1`,
         [job.owner_id]
       );
     }
 
-    return {
-      id: rows[0].id,
-      jobId: rows[0].job_id,
-      fromUserId: rows[0].from_user_id,
-      toUserId: rows[0].to_user_id,
-      stars: rows[0].stars,
-      comment: rows[0].comment,
-      createdAt: rows[0].created_at,
-    };
-  }
-
-  async postLocation(jobId: string, ownerUserId: string, input: LocationPingInput): Promise<void> {
-    const job = await this.assertJobParticipant(jobId, ownerUserId);
-    if (job.owner_id !== ownerUserId) {
-      throw new HttpError(403, 'Only the assigned owner can share live location.');
-    }
-    if (job.status !== 'accepted' && job.status !== 'in_progress') {
-      throw new HttpError(400, 'Location sharing only while job is accepted or in progress.');
-    }
-    await pool.query(
-      `INSERT INTO av_drive_location_pings (job_id, owner_id, lat, lng, accuracy_m)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [jobId, ownerUserId, input.lat, input.lng, input.accuracyM ?? null]
-    );
-    await this.recordEvent(jobId, ownerUserId, 'location_ping', null, input.lat, input.lng, {
-      accuracyM: input.accuracyM ?? null,
-    });
-  }
-
-  async listEvents(jobId: string, userId: string): Promise<AvDriveJobEvent[]> {
-    await this.assertJobParticipant(jobId, userId);
-    const { rows } = await pool.query(
-      `SELECT * FROM av_drive_job_events WHERE job_id = $1 ORDER BY created_at ASC`,
-      [jobId]
-    );
-    return rows.map((r) => ({
-      id: r.id,
-      jobId: r.job_id,
-      actorId: r.actor_id,
-      eventType: r.event_type,
-      signal: (r.meta && r.meta.signal) || null,
-      lat: r.lat,
-      lng: r.lng,
-      meta: r.meta,
-      createdAt: r.created_at,
-    }));
-  }
-
-  /** Contact hints for UI (call / WhatsApp) — phones from users table. */
-  async getJobContact(
-    jobId: string,
-    userId: string
-  ): Promise<{ otherUserId: string; phone: string | null; whatsappUrl: string | null; telUrl: string | null }> {
-    const job = await this.assertJobParticipant(jobId, userId);
-    if (job.status === 'requested' && job.owner_id === null) {
-      throw new HttpError(400, 'No partner assigned yet.');
-    }
-    const otherId = job.client_id === userId ? job.owner_id : job.client_id;
-    if (!otherId) throw new HttpError(400, 'Counterparty not assigned.');
-
-    const { rows } = await pool.query(`SELECT phone FROM users WHERE id = $1`, [otherId]);
-    const phone = rows[0]?.phone ?? null;
-    const digits = phone ? String(phone).replace(/\D/g, '') : null;
-    return {
-      otherUserId: otherId,
-      phone,
-      telUrl: digits ? `tel:+${digits.startsWith('234') ? digits : digits}` : null,
-      whatsappUrl: digits
-        ? `https://wa.me/${digits.startsWith('234') ? digits : digits}`
-        : null,
-    };
+    return this.mapRating(rows[0]);
   }
 
   // ---------------------------------------------------------------------------
-  // Internals
+  // Location
+  // ---------------------------------------------------------------------------
+
+  async addLocationPing(userId: string, input: LocationPingInput): Promise<AvDriveJobEvent> {
+    const job = await this.assertJobParticipant(input.jobId, userId);
+    if (job.owner_id !== userId) {
+      throw new HttpError(403, 'Only the assigned partner can send location pings.');
+    }
+    if (job.status !== 'accepted' && job.status !== 'in_progress') {
+      throw new HttpError(400, 'Location pings require an accepted or active job.');
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO av_drive_location_pings (id, job_id, user_id, lat, lng, accuracy_m, recorded_at)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, now()))
+       RETURNING *`,
+      [randomUUID(), input.jobId, userId, input.lat, input.lng, input.accuracyM ?? null, input.recordedAt ?? null]
+    );
+
+    return this.mapLocationPing(rows[0]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
   // ---------------------------------------------------------------------------
 
   private async requireProfile(userId: string): Promise<AvDriveProfile> {
-    const p = await this.getMyProfile(userId);
-    if (!p) throw new HttpError(404, 'Create an AV Drive profile first.');
-    return p;
+    const profile = await this.getMyProfile(userId);
+    if (!profile) throw new HttpError(404, 'AV Drive profile not found.');
+    return profile;
   }
 
   private async assertJobParticipant(jobId: string, userId: string): Promise<any> {
-    const { rows } = await pool.query(`SELECT * FROM av_drive_jobs WHERE id = $1`, [jobId]);
+    const { rows } = await pool.query(
+      `SELECT * FROM av_drive_jobs WHERE id = $1 AND (client_id = $2 OR owner_id = $2)`,
+      [jobId, userId]
+    );
     if (rows.length === 0) throw new HttpError(404, 'Job not found.');
-    const job = rows[0];
-    const ok =
-      job.client_id === userId ||
-      job.owner_id === userId ||
-      // open requested jobs: any work-ready owner may view to accept
-      (job.status === 'requested' && job.owner_id === null);
-    if (!ok && job.owner_id !== userId && job.client_id !== userId) {
-      // owners browsing open board
-      const profile = await this.getMyProfile(userId);
-      if (!(job.status === 'requested' && profile?.workReady)) {
-        throw new HttpError(403, 'You do not have access to this job.');
-      }
-    }
-    return job;
+    return rows[0];
   }
 
   private async recordEvent(
     jobId: string,
-    actorId: string | null,
+    actorUserId: string,
     eventType: string,
-    signal: AvDriveStatusSignal | null,
+    signal: string,
     lat: number | null,
     lng: number | null,
-    meta: Record<string, unknown> | null
-  ) {
+    metadata: Record<string, unknown> | null
+  ): Promise<void> {
     await pool.query(
-      `INSERT INTO av_drive_job_events (job_id, actor_id, event_type, lat, lng, meta)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
-      [jobId, actorId, eventType, lat, lng, meta ? { ...meta, signal } : signal ? { signal } : null]
+      `INSERT INTO av_drive_job_events
+       (id, job_id, actor_user_id, event_type, signal, lat, lng, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [randomUUID(), jobId, actorUserId, eventType, signal, lat, lng, metadata]
     );
   }
 
-  /**
-   * Best-effort: create listing-style conversation so ChatScreen can be reused.
-   * If messaging schema constraints block (e.g. owner is not dealer/seller on vehicle),
-   * we skip chat and rely on status signals + phone/WhatsApp.
-   */
   private async ensureJobConversation(
     vehicleId: string,
     clientId: string,
@@ -536,147 +469,142 @@ class AvDriveService {
   ): Promise<string | null> {
     try {
       const { rows: existing } = await pool.query(
-        `SELECT id FROM conversations WHERE vehicle_id = $1 AND buyer_id = $2`,
-        [vehicleId, clientId]
+        `SELECT id FROM conversations
+         WHERE vehicle_id = $1
+           AND ((buyer_id = $2 AND seller_id = $3) OR (buyer_id = $3 AND seller_id = $2))
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [vehicleId, clientId, ownerId]
       );
       if (existing.length > 0) return existing[0].id;
 
-      const { rows: v } = await pool.query(
-        `SELECT dealer_id, seller_id FROM vehicles WHERE id = $1`,
-        [vehicleId]
-      );
-      if (v.length === 0) return null;
-
-      // Prefer real dealer/seller columns; if owner is the seller/dealer, conversation works.
-      const dealerId = v[0].dealer_id;
-      const sellerId = v[0].seller_id || ownerId;
-      const id = randomUUID();
       const { rows } = await pool.query(
-        `INSERT INTO conversations (id, vehicle_id, buyer_id, dealer_id, seller_id)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (vehicle_id, buyer_id) DO UPDATE SET last_message_at = now()
+        `INSERT INTO conversations (vehicle_id, buyer_id, seller_id)
+         VALUES ($1,$2,$3)
          RETURNING id`,
-        [id, vehicleId, clientId, dealerId, sellerId]
+        [vehicleId, clientId, ownerId]
       );
       return rows[0]?.id ?? null;
-    } catch (err) {
-      console.warn('[avDrive] ensureJobConversation skipped:', err);
+    } catch {
+      // Messaging schema can vary across deployments; AV Drive remains usable without chat.
       return null;
     }
   }
 
-  private async tryPostChat(conversationId: string, senderId: string, body: string) {
+  private async tryPostChat(conversationId: string, senderId: string, body: string): Promise<void> {
     try {
-      // Infer role roughly for messaging CHECK constraint
-      const { rows } = await pool.query(`SELECT buyer_id, dealer_id, seller_id FROM conversations WHERE id = $1`, [
-        conversationId,
-      ]);
-      if (rows.length === 0) return;
-      const c = rows[0];
-      let role = 'seller';
-      if (c.buyer_id === senderId) role = 'buyer';
-      else if (c.dealer_id === senderId) role = 'dealer';
-      else role = 'seller';
-
       await pool.query(
-        `INSERT INTO messages (conversation_id, sender_id, sender_role, body)
-         VALUES ($1,$2,$3,$4)`,
-        [conversationId, senderId, role, body.slice(0, 2000)]
+        `INSERT INTO messages (conversation_id, sender_id, content)
+         VALUES ($1,$2,$3)`,
+        [conversationId, senderId, body]
       );
-      await pool.query(`UPDATE conversations SET last_message_at = now() WHERE id = $1`, [
-        conversationId,
-      ]);
-    } catch (err) {
-      console.warn('[avDrive] tryPostChat skipped:', err);
+    } catch {
+      // Chat is an enhancement; never fail the core job operation if messaging is unavailable.
     }
   }
 
   private signalToChatLine(signal: AvDriveStatusSignal): string | null {
-    switch (signal) {
-      case 'owner_on_the_way':
-        return 'I am on the way to pickup.';
-      case 'owner_arrived':
-        return 'I have arrived at pickup.';
-      case 'client_ready':
-        return 'I am ready at pickup.';
-      case 'trip_started':
-        return 'Trip started.';
-      case 'trip_completed':
-        return 'Trip completed. Thank you.';
-      default:
-        return null;
-    }
+    const lines: Partial<Record<AvDriveStatusSignal, string>> = {
+      owner_on_the_way: 'I am on the way.',
+      owner_arrived: 'I have arrived at the pickup point.',
+      trip_started: 'The trip has started.',
+      trip_completed: 'The trip has been completed.',
+      client_ready: 'I am ready for pickup.',
+    };
+    return lines[signal] ?? null;
   }
 
-  private assertCity(city: string) {
-    if (!PILOT_CITIES.includes(city as AvDriveCity)) {
-      throw new HttpError(400, `Pilot cities only: ${PILOT_CITIES.join(', ')}`);
-    }
-  }
-
-  private assertJobType(t: string) {
-    if (!JOB_TYPES.includes(t as AvDriveJobType)) {
-      throw new HttpError(400, `Job type must be one of: ${JOB_TYPES.join(', ')}`);
-    }
-  }
-
-  private assertJobTypes(types: string[]) {
-    if (!types.length) throw new HttpError(400, 'Select at least one job type.');
-    types.forEach((t) => this.assertJobType(t));
-  }
-
-  private mapProfile(row: any): AvDriveProfile {
+  private mapProfile(r: any): AvDriveProfile {
     return {
-      id: row.id,
-      userId: row.user_id,
-      vehicleId: row.vehicle_id,
-      homeCity: row.home_city,
-      jobTypes: row.job_types ?? [],
-      isAvailable: row.is_available,
-      availableFrom: row.available_from,
-      availableTo: row.available_to,
-      workReady: row.work_ready,
-      kycStatus: row.kyc_status,
-      bio: row.bio,
-      ratingAvg: Number(row.rating_avg),
-      ratingCount: Number(row.rating_count),
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: r.id,
+      userId: r.user_id,
+      vehicleId: r.vehicle_id,
+      homeCity: r.home_city,
+      jobTypes: r.job_types,
+      bio: r.bio,
+      workReady: Boolean(r.work_ready),
+      isAvailable: Boolean(r.is_available),
+      availableFrom: r.available_from,
+      availableTo: r.available_to,
+      ratingAvg: Number(r.rating_avg),
+      ratingCount: Number(r.rating_count),
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
     };
   }
 
-  private mapJob(row: any): AvDriveJob {
+  private mapJob(r: any): AvDriveJob {
     return {
-      id: row.id,
-      clientId: row.client_id,
-      ownerId: row.owner_id,
-      profileId: row.profile_id,
-      vehicleId: row.vehicle_id,
-      conversationId: row.conversation_id ?? null,
-      jobType: row.job_type,
-      corridor: row.corridor,
-      city: row.city,
-      geo: {
-        pickupLabel: row.pickup_label,
-        dropoffLabel: row.dropoff_label,
-        pickupLat: row.pickup_lat,
-        pickupLng: row.pickup_lng,
-        dropoffLat: row.dropoff_lat,
-        dropoffLng: row.dropoff_lng,
-      },
-      scheduledAt: row.scheduled_at,
-      notes: row.notes,
-      status: row.status,
-      priceNgn: row.price_ngn != null ? Number(row.price_ngn) : null,
-      paymentStatus: row.payment_status,
-      acceptedAt: row.accepted_at,
-      startedAt: row.started_at,
-      completedAt: row.completed_at,
-      cancelledAt: row.cancelled_at,
-      cancelReason: row.cancel_reason,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: r.id,
+      clientId: r.client_id,
+      ownerId: r.owner_id,
+      profileId: r.profile_id,
+      vehicleId: r.vehicle_id,
+      jobType: r.job_type,
+      corridor: r.corridor,
+      city: r.city,
+      pickupLabel: r.pickup_label,
+      dropoffLabel: r.dropoff_label,
+      pickupLat: r.pickup_lat,
+      pickupLng: r.pickup_lng,
+      dropoffLat: r.dropoff_lat,
+      dropoffLng: r.dropoff_lng,
+      scheduledAt: r.scheduled_at,
+      notes: r.notes,
+      priceNgn: r.price_ngn,
+      status: r.status,
+      conversationId: r.conversation_id,
+      acceptedAt: r.accepted_at,
+      startedAt: r.started_at,
+      completedAt: r.completed_at,
+      cancelledAt: r.cancelled_at,
+      cancelReason: r.cancel_reason,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
     };
+  }
+
+  private mapRating(r: any): AvDriveRating {
+    return {
+      id: r.id,
+      jobId: r.job_id,
+      fromUserId: r.from_user_id,
+      toUserId: r.to_user_id,
+      stars: Number(r.stars),
+      comment: r.comment,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  }
+
+  private mapLocationPing(r: any): AvDriveJobEvent {
+    return {
+      id: r.id,
+      jobId: r.job_id,
+      actorUserId: r.user_id,
+      eventType: 'location_ping',
+      signal: 'location_ping',
+      lat: r.lat,
+      lng: r.lng,
+      metadata: { accuracyM: r.accuracy_m },
+      createdAt: r.recorded_at,
+    };
+  }
+
+  private assertCity(city: AvDriveCity): void {
+    if (!PILOT_CITIES.includes(city)) {
+      throw new HttpError(400, `Unsupported AV Drive city: ${city}.`);
+    }
+  }
+
+  private assertJobType(jobType: AvDriveJobType): void {
+    if (!JOB_TYPES.includes(jobType)) {
+      throw new HttpError(400, `Unsupported AV Drive job type: ${jobType}.`);
+    }
+  }
+
+  private assertJobTypes(jobTypes: AvDriveJobType[]): void {
+    jobTypes.forEach((jobType) => this.assertJobType(jobType));
   }
 }
 
