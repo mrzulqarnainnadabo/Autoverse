@@ -42,10 +42,13 @@ app.get('/health', (_req: Request, res: Response) => {
   });
 });
 
+// IMPORTANT: public search routes must mount BEFORE listing routes.
+// listing has GET /api/v1/listings/:vehicleId which would otherwise capture
+// /api/v1/listings/search and force requireAuth.
+app.use(searchRoutes);
 app.use(autoinspectRoutes);
 app.use(dealerRoutes);
 app.use(listingRoutes);
-app.use(searchRoutes);
 app.use(messagingRoutes);
 app.use(verificationRoutes);
 app.use(avDriveRoutes);
