@@ -11,6 +11,17 @@ export const app = express();
 
 app.use(express.json());
 
+// Friendly root endpoint so opening the Vercel domain in a browser does not
+// show Express's default "Cannot GET /" response.
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    service: 'autoverse-api',
+    status: 'online',
+    health: '/health',
+    api: '/api/v1',
+  });
+});
+
 // Deliberately dependency-free: never imports supabaseAdmin or pool,
 // so this endpoint can ALWAYS respond, even with zero env vars set.
 // It reports config status as data instead of crashing on missing vars.
