@@ -12,6 +12,12 @@ import { handleRouteError } from '../utils/httpError';
 
 const router = Router();
 
+/** Express params can be string | string[]; normalize to a single string. */
+function jobIdParam(req: Request): string {
+  const v = req.params.jobId;
+  return Array.isArray(v) ? v[0] : v;
+}
+
 const cityEnum = z.enum(['Abuja', 'Kaduna']);
 const jobTypeEnum = z.enum(['airport_transfer', 'intercity']);
 const signalEnum = z.enum([
@@ -122,7 +128,7 @@ router.get('/api/v1/av-drive/jobs/mine', requireAuth, async (req: Request, res: 
 
 router.get('/api/v1/av-drive/jobs/:jobId', requireAuth, async (req: Request, res: Response) => {
   try {
-    const job = await avDriveService.getJob(req.params.jobId, req.user!.id);
+    const job = await avDriveService.getJob(jobIdParam(req), req.user!.id);
     return res.json({ job });
   } catch (err) {
     return handleRouteError(err, res);
@@ -131,7 +137,7 @@ router.get('/api/v1/av-drive/jobs/:jobId', requireAuth, async (req: Request, res
 
 router.post('/api/v1/av-drive/jobs/:jobId/accept', requireAuth, async (req: Request, res: Response) => {
   try {
-    const job = await avDriveService.acceptJob(req.params.jobId, req.user!.id);
+    const job = await avDriveService.acceptJob(jobIdParam(req), req.user!.id);
     return res.json({ job });
   } catch (err) {
     return handleRouteError(err, res);
@@ -150,7 +156,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/signal', requireAuth, async (req: Requ
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid signal', details: parsed.error.flatten() });
     }
-    const job = await avDriveService.signal(req.params.jobId, req.user!.id, parsed.data.signal, {
+    const job = await avDriveService.signal(jobIdParam(req), req.user!.id, parsed.data.signal, {
       lat: parsed.data.lat,
       lng: parsed.data.lng,
     });
@@ -162,7 +168,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/signal', requireAuth, async (req: Requ
 
 router.post('/api/v1/av-drive/jobs/:jobId/complete', requireAuth, async (req: Request, res: Response) => {
   try {
-    const job = await avDriveService.completeJob(req.params.jobId, req.user!.id);
+    const job = await avDriveService.completeJob(jobIdParam(req), req.user!.id);
     return res.json({ job });
   } catch (err) {
     return handleRouteError(err, res);
@@ -179,7 +185,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/cancel', requireAuth, async (req: Requ
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid cancel body', details: parsed.error.flatten() });
     }
-    const job = await avDriveService.cancelJob(req.params.jobId, req.user!.id, parsed.data.reason);
+    const job = await avDriveService.cancelJob(jobIdParam(req), req.user!.id, parsed.data.reason);
     return res.json({ job });
   } catch (err) {
     return handleRouteError(err, res);
@@ -197,7 +203,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/rate', requireAuth, async (req: Reques
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid rating', details: parsed.error.flatten() });
     }
-    const rating = await avDriveService.rateJob(req.params.jobId, req.user!.id, parsed.data);
+    const rating = await avDriveService.rateJob(jobIdParam(req), req.user!.id, parsed.data);
     return res.status(201).json({ rating });
   } catch (err) {
     return handleRouteError(err, res);
@@ -216,7 +222,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/location', requireAuth, async (req: Re
     if (!parsed.success) {
       return res.status(400).json({ error: 'Invalid location', details: parsed.error.flatten() });
     }
-    await avDriveService.postLocation(req.params.jobId, req.user!.id, parsed.data);
+    await avDriveService.postLocation(jobIdParam(req), req.user!.id, parsed.data);
     return res.status(204).send();
   } catch (err) {
     return handleRouteError(err, res);
@@ -225,7 +231,7 @@ router.post('/api/v1/av-drive/jobs/:jobId/location', requireAuth, async (req: Re
 
 router.get('/api/v1/av-drive/jobs/:jobId/events', requireAuth, async (req: Request, res: Response) => {
   try {
-    const events = await avDriveService.listEvents(req.params.jobId, req.user!.id);
+    const events = await avDriveService.listEvents(jobIdParam(req), req.user!.id);
     return res.json({ events });
   } catch (err) {
     return handleRouteError(err, res);
@@ -234,7 +240,7 @@ router.get('/api/v1/av-drive/jobs/:jobId/events', requireAuth, async (req: Reque
 
 router.get('/api/v1/av-drive/jobs/:jobId/contact', requireAuth, async (req: Request, res: Response) => {
   try {
-    const contact = await avDriveService.getJobContact(req.params.jobId, req.user!.id);
+    const contact = await avDriveService.getJobContact(jobIdParam(req), req.user!.id);
     return res.json({ contact });
   } catch (err) {
     return handleRouteError(err, res);
