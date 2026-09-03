@@ -151,7 +151,9 @@ export interface RateAvDriveJobInput {
 }
 
 export interface LocationPingInput {
+  jobId: string;
   lat: number;
   lng: number;
   accuracyM?: number | null;
+  recordedAt?: string | null;
 }
