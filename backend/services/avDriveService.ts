@@ -244,7 +244,6 @@ class AvDriveService {
     if (job.client_id === ownerUserId) {
       throw new HttpError(400, 'You cannot accept your own job.');
     }
-    // If client preferred another owner, only that owner may accept
     if (job.owner_id && job.owner_id !== ownerUserId) {
       throw new HttpError(403, 'This job is assigned to another partner.');
     }
@@ -252,7 +251,6 @@ class AvDriveService {
     let conversationId: string | null = job.conversation_id ?? null;
     const vehicleId = job.vehicle_id || profile.vehicleId;
 
-    // Open job-anchored chat when we have a vehicle (reuses marketplace messaging).
     if (vehicleId && !conversationId) {
       conversationId = await this.ensureJobConversation(vehicleId, job.client_id, ownerUserId);
     }
@@ -275,7 +273,6 @@ class AvDriveService {
       conversationId,
     });
 
-    // Seed chat with a clear system-style first line if conversation exists
     if (conversationId) {
       await this.tryPostChat(
         conversationId,
@@ -305,7 +302,6 @@ class AvDriveService {
       throw new HttpError(400, `Signal ${signal} is not allowed for your role.`);
     }
 
-    // Status transitions for key signals
     if (signal === 'trip_started') {
       if (job.status !== 'accepted' && job.status !== 'in_progress') {
         throw new HttpError(400, 'Job must be accepted before starting.');
@@ -328,7 +324,6 @@ class AvDriveService {
       await this.recordEvent(jobId, userId, 'note', signal, geo?.lat ?? null, geo?.lng ?? null, null);
     }
 
-    // Mirror important signals into chat when available
     const chatLine = this.signalToChatLine(signal);
     if (chatLine && job.conversation_id) {
       await this.tryPostChat(job.conversation_id, userId, chatLine);
@@ -388,7 +383,6 @@ class AvDriveService {
       [id, jobId, fromUserId, toUserId, input.stars, input.comment ?? null]
     );
 
-    // Roll up owner rating when client rates owner
     if (fromUserId === job.client_id && job.owner_id) {
       await pool.query(
         `UPDATE av_drive_profiles
@@ -424,6 +418,86 @@ class AvDriveService {
     );
 
     return this.mapLocationPing(rows[0]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Location + Events + Contact (called from routes)
+  // ---------------------------------------------------------------------------
+
+  async postLocation(
+    jobId: string,
+    userId: string,
+    input: { lat: number; lng: number; accuracyM?: number | null }
+  ): Promise<void> {
+    await this.addLocationPing(userId, {
+      jobId,
+      lat: input.lat,
+      lng: input.lng,
+      accuracyM: input.accuracyM ?? null,
+    });
+  }
+
+  async listEvents(jobId: string, userId: string): Promise<AvDriveJobEvent[]> {
+    await this.assertJobParticipant(jobId, userId);
+    const { rows } = await pool.query(
+      `SELECT * FROM av_drive_job_events
+       WHERE job_id = $1
+       ORDER BY created_at ASC
+       LIMIT 200`,
+      [jobId]
+    );
+    return rows.map((r: any) => ({
+      id: r.id,
+      jobId: r.job_id,
+      actorId: r.actor_user_id,
+      eventType: r.event_type,
+      signal: r.signal,
+      lat: r.lat,
+      lng: r.lng,
+      meta: r.metadata,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async getJobContact(
+    jobId: string,
+    userId: string
+  ): Promise<{
+    role: 'client' | 'owner';
+    counterpartUserId: string | null;
+    phone: string | null;
+    whatsappUrl: string | null;
+    telUrl: string | null;
+  }> {
+    const job = await this.assertJobParticipant(jobId, userId);
+    const counterpartId =
+      job.client_id === userId ? job.owner_id : job.client_id;
+    const role = job.client_id === userId ? 'client' : 'owner';
+
+    let phone: string | null = null;
+    if (counterpartId) {
+      try {
+        const { rows } = await pool.query(
+          `SELECT phone FROM users WHERE id = $1`,
+          [counterpartId]
+        );
+        phone = rows[0]?.phone ?? null;
+      } catch {
+        phone = null;
+      }
+    }
+
+    const digits = phone ? String(phone).replace(/\D/g, '') : null;
+    const whatsappUrl = digits ? `https://wa.me/${digits}` : null;
+    const telUrl = phone ? `tel:${phone}` : null;
+
+    return {
+      role,
+      counterpartUserId: counterpartId ?? null,
+      phone,
+      whatsappUrl,
+      telUrl,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -486,7 +560,6 @@ class AvDriveService {
       );
       return rows[0]?.id ?? null;
     } catch {
-      // Messaging schema can vary across deployments; AV Drive remains usable without chat.
       return null;
     }
   }
@@ -526,6 +599,7 @@ class AvDriveService {
       isAvailable: Boolean(r.is_available),
       availableFrom: r.available_from,
       availableTo: r.available_to,
+      kycStatus: (r.kyc_status as AvDriveProfile['kycStatus']) ?? 'pending',
       ratingAvg: Number(r.rating_avg),
       ratingCount: Number(r.rating_count),
       createdAt: r.created_at,
@@ -540,20 +614,23 @@ class AvDriveService {
       ownerId: r.owner_id,
       profileId: r.profile_id,
       vehicleId: r.vehicle_id,
+      conversationId: r.conversation_id,
       jobType: r.job_type,
       corridor: r.corridor,
       city: r.city,
-      pickupLabel: r.pickup_label,
-      dropoffLabel: r.dropoff_label,
-      pickupLat: r.pickup_lat,
-      pickupLng: r.pickup_lng,
-      dropoffLat: r.dropoff_lat,
-      dropoffLng: r.dropoff_lng,
+      geo: {
+        pickupLabel: r.pickup_label,
+        dropoffLabel: r.dropoff_label,
+        pickupLat: r.pickup_lat ?? null,
+        pickupLng: r.pickup_lng ?? null,
+        dropoffLat: r.dropoff_lat ?? null,
+        dropoffLng: r.dropoff_lng ?? null,
+      },
       scheduledAt: r.scheduled_at,
       notes: r.notes,
-      priceNgn: r.price_ngn,
       status: r.status,
-      conversationId: r.conversation_id,
+      priceNgn: r.price_ngn,
+      paymentStatus: (r.payment_status as AvDriveJob['paymentStatus']) ?? 'unpaid',
       acceptedAt: r.accepted_at,
       startedAt: r.started_at,
       completedAt: r.completed_at,
@@ -573,7 +650,6 @@ class AvDriveService {
       stars: Number(r.stars),
       comment: r.comment,
       createdAt: r.created_at,
-      updatedAt: r.updated_at,
     };
   }
 
@@ -581,12 +657,12 @@ class AvDriveService {
     return {
       id: r.id,
       jobId: r.job_id,
-      actorUserId: r.user_id,
+      actorId: r.user_id,
       eventType: 'location_ping',
-      signal: 'location_ping',
+      signal: null,
       lat: r.lat,
       lng: r.lng,
-      metadata: { accuracyM: r.accuracy_m },
+      meta: { accuracyM: r.accuracy_m },
       createdAt: r.recorded_at,
     };
   }
