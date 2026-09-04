@@ -35,14 +35,17 @@ export async function sendInquiry(
   input: { message: string; buyerName: string; buyerPhone: string }
 ): Promise<{ inquiryId: string; conversationId: string }> {
   const token = await getAccessToken();
-  const response = await fetch(`${API_BASE_URL}/api/v1/listings/${vehicleId}/inquiries`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/listings/${vehicleId}/inquiries`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    }
+  );
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Inquiry failed (${response.status})`);
+    throw new Error(body.error || `Could not send message (${response.status})`);
   }
   return response.json();
 }

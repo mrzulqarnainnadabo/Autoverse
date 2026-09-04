@@ -1,7 +1,7 @@
 import { CapturedPhoto, AutoInspectReport } from '../types/autoinspect.types';
 import { getAccessToken } from './authStorage'; // your existing token store
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.autoverse.ng';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://autoverse-backend.vercel.app';
 
 interface SubmitParams {
   vehicleId: string;
