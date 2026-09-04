@@ -7,7 +7,7 @@ import {
 } from '../types/listing.types';
 import { AutoInspectReport } from '../types/autoinspect.types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.autoverse.ng';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://autoverse-backend.vercel.app';
 
 async function authHeaders() {
   const token = await getAccessToken();
