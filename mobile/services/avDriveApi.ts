@@ -11,7 +11,7 @@ import {
   CreateAvDriveJobInput,
 } from '../types/avDrive.types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.autoverse.ng';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://autoverse-backend.vercel.app';
 
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await getAccessToken();
