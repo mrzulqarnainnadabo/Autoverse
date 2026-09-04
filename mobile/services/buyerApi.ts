@@ -1,7 +1,7 @@
 import { getAccessToken } from './authStorage';
 import { SearchFilters, SearchResponse, PublicListingDetail } from '../types/search.types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.autoverse.ng';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://autoverse-backend.vercel.app';
 
 function buildQueryString(filters: SearchFilters): string {
   const params = new URLSearchParams();
@@ -42,7 +42,7 @@ export async function sendInquiry(
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || `Could not send message (${response.status})`);
+    throw new Error(body.error || `Inquiry failed (${response.status})`);
   }
   return response.json();
 }
